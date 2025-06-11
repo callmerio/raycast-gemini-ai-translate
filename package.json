@@ -15,7 +15,7 @@
       "arguments": [
         {
           "name": "query",
-          "placeholder": "要翻译的文本",
+          "placeholder": "文本(选中文本 ↩ 翻译)",
           "type": "text",
           "required": false
         },
@@ -35,6 +35,88 @@
       "description": "您的 Google Gemini API 密钥",
       "type": "password",
       "required": true
+    },
+    {
+      "name": "model",
+      "title": "AI 模型",
+      "description": "选择要使用的 Gemini 模型",
+      "type": "dropdown",
+      "required": false,
+      "default": "gemini-2.0-flash-exp",
+      "data": [
+        {
+          "title": "gemini-2.0-flash-exp",
+          "value": "gemini-2.0-flash-exp"
+        },
+        {
+          "title": "gemini-2.0-flash-thinking-exp-1219",
+          "value": "gemini-2.0-flash-thinking-exp-1219"
+        },
+        {
+          "title": "gemini-2.5-flash-preview-05-20",
+          "value": "gemini-2.5-flash-preview-05-20"
+        },
+        {
+          "title": "gemini-exp-1206",
+          "value": "gemini-exp-1206"
+        },
+        {
+          "title": "gemini-exp-1121",
+          "value": "gemini-exp-1121"
+        },
+        {
+          "title": "gemini-1.5-pro-002",
+          "value": "gemini-1.5-pro-002"
+        },
+        {
+          "title": "gemini-1.5-pro-001",
+          "value": "gemini-1.5-pro-001"
+        },
+        {
+          "title": "gemini-1.5-flash-002",
+          "value": "gemini-1.5-flash-002"
+        },
+        {
+          "title": "gemini-1.5-flash-001",
+          "value": "gemini-1.5-flash-001"
+        },
+        {
+          "title": "gemini-1.5-flash-8b",
+          "value": "gemini-1.5-flash-8b"
+        },
+        {
+          "title": "gemini-1.5-flash-8b-001",
+          "value": "gemini-1.5-flash-8b-001"
+        },
+        {
+          "title": "learnlm-1.5-pro-experimental",
+          "value": "learnlm-1.5-pro-experimental"
+        },
+        {
+          "title": "gemini-1.0-pro",
+          "value": "gemini-1.0-pro"
+        },
+        {
+          "title": "gemini-1.0-pro-001",
+          "value": "gemini-1.0-pro-001"
+        },
+        {
+          "title": "gemini-1.0-pro-vision-latest",
+          "value": "gemini-1.0-pro-vision-latest"
+        },
+        {
+          "title": "自定义模型",
+          "value": "custom"
+        }
+      ]
+    },
+    {
+      "name": "customModel",
+      "title": "自定义模型名称",
+      "description": "当选择'自定义模型'时，请输入具体的模型名称",
+      "type": "textfield",
+      "required": false,
+      "default": ""
     },
     {
       "name": "firstLanguage",

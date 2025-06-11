@@ -11,7 +11,11 @@ import {
   Toast,
 } from "@raycast/api";
 import { useEffect, useState } from "react";
-import { createGeminiClient, GeminiClient } from "./api/gemini";
+import {
+  createGeminiClient,
+  GeminiClient,
+  isValidModelName
+} from "./api/gemini";
 
 // 类型定义
 interface TranslateProps {
@@ -24,6 +28,8 @@ interface TranslateProps {
 
 interface Preferences {
   apiKey: string;
+  model: string;
+  customModel: string;
   firstLanguage: string;
   secondLanguage: string;
   prompt: string;
@@ -84,11 +90,14 @@ export default function Translate(props: TranslateProps) {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [selectedText, setSelectedText] = useState<string>("");
   const [inputText, setInputText] = useState<string>("");
+  const [targetLanguage, setTargetLanguage] = useState<string>("");
   const [geminiClient, setGeminiClient] = useState<GeminiClient | null>(null);
+
+
 
   // 获取用户配置
   const preferences = getPreferenceValues<Preferences>();
-  const { apiKey, firstLanguage, secondLanguage, prompt } = preferences;
+  const { apiKey, model, customModel, firstLanguage, secondLanguage, prompt } = preferences;
 
   // 验证配置数据的完整性
   if (!apiKey || typeof apiKey !== "string") {
@@ -100,12 +109,25 @@ export default function Translate(props: TranslateProps) {
   const initialQuery = argQuery || props.fallbackText || "";
 
   /**
+   * 确定要使用的模型
+   */
+  const getSelectedModel = (): string => {
+    if (model === "custom" && customModel && customModel.trim()) {
+      return customModel.trim();
+    }
+    return model || "gemini-2.0-flash-exp";
+  };
+
+
+
+  /**
    * 初始化 Gemini 客户端
    */
   useEffect(() => {
     if (apiKey) {
       try {
-        const client = createGeminiClient({ apiKey });
+        const selectedModel = getSelectedModel();
+        const client = createGeminiClient({ apiKey, model: selectedModel });
         setGeminiClient(client);
       } catch (error) {
         console.error("Failed to initialize Gemini client:", error);
@@ -116,7 +138,7 @@ export default function Translate(props: TranslateProps) {
         });
       }
     }
-  }, [apiKey]);
+  }, [apiKey, model, customModel]);
 
   /**
    * 生成翻译提示词
@@ -179,6 +201,17 @@ ${text}`;
       return;
     }
 
+    // 验证当前模型是否有效
+    const selectedModel = getSelectedModel();
+    if (!isValidModelName(selectedModel)) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "模型名称无效",
+        message: `模型 "${selectedModel}" 格式不正确`,
+      });
+      return;
+    }
+
     setPage(PageState.Detail);
     setMarkdown(""); // 确保清空之前的内容
     setIsLoading(true);
@@ -189,8 +222,9 @@ ${text}`;
       // 再次确保 markdown 状态为空，防止状态污染
       setMarkdown("");
 
-      // 使用流式响应
+      // 使用流式响应，并指定模型
       await geminiClient.generateContentStream(prompt, {
+        model: selectedModel,
         stream: (chunk: string) => {
           setMarkdown((prev) => prev + chunk);
         },
@@ -213,40 +247,38 @@ ${text}`;
     setMarkdown("");
     setInputText("");
     setSelectedText("");
-    setPage(PageState.Detail);
-    setIsLoading(true);
+    setPage(PageState.Form);
+    setIsLoading(false);
 
     const initializeTranslation = async () => {
       try {
+        // 设置目标语言的默认值
+        if (TranslateLanguage) {
+          setTargetLanguage(TranslateLanguage);
+        }
+
         // 尝试获取选中的文本
         const selected = await getSelectedText();
 
         if (selected) {
-          // 保存选中的文本到状态
+          // 直接将选中文本放到输入框中
           setSelectedText(selected);
-          setInputText(selected); // 同时设置到输入框，方便用户编辑
+          setInputText(selected);
         }
 
         if (initialQuery) {
           // 如果有命令参数，直接翻译
           const textToTranslate = selected ? `${initialQuery}\n${selected}` : initialQuery;
+          setPage(PageState.Detail);
+          setIsLoading(true);
           await performTranslation(textToTranslate, TranslateLanguage);
-        } else if (selected) {
-          // 如果有选中文本，直接翻译
-          await performTranslation(selected, TranslateLanguage);
-        } else {
-          // 没有输入，显示表单
-          setPage(PageState.Form);
-          setIsLoading(false);
         }
       } catch {
         // 无法获取选中文本，检查是否有命令参数
         if (initialQuery) {
+          setPage(PageState.Detail);
+          setIsLoading(true);
           await performTranslation(initialQuery, TranslateLanguage);
-        } else {
-          // 显示表单让用户输入
-          setPage(PageState.Form);
-          setIsLoading(false);
         }
       }
     };
@@ -259,12 +291,35 @@ ${text}`;
   /**
    * 处理表单提交
    */
-  const handleFormSubmit = async (values: { query: string }) => {
-    const text = values.query.trim();
-    if (text) {
-      await performTranslation(text, TranslateLanguage);
+  const handleFormSubmit = async (values: { query: string; targetLanguage?: string }) => {
+    const textToTranslate = values.query.trim();
+
+    if (!textToTranslate) {
+      showToast({
+        style: Toast.Style.Failure,
+        title: "请输入要翻译的文本",
+      });
+      return;
     }
+
+    // 目标语言优先级：表单输入 > 命令参数 > undefined（智能互译）
+    let finalTargetLanguage: string | undefined;
+
+    if (values.targetLanguage?.trim()) {
+      // 用户在表单中输入了目标语言
+      finalTargetLanguage = values.targetLanguage.trim();
+    } else if (TranslateLanguage) {
+      // 用户没有输入，但有命令参数
+      finalTargetLanguage = TranslateLanguage;
+    } else {
+      // 用户没有输入，也没有命令参数 → 智能互译
+      finalTargetLanguage = undefined;
+    }
+
+    await performTranslation(textToTranslate, finalTargetLanguage);
   };
+
+
 
   /**
    * 添加选中文本到输入框
@@ -272,8 +327,15 @@ ${text}`;
   const appendSelectedText = async () => {
     try {
       const selected = await getSelectedText();
-      setInputText((prev) => prev + selected);
-      setSelectedText((prev) => prev + selected);
+      if (selected) {
+        setSelectedText(selected);
+        setInputText((prev) => prev + selected);
+        showToast({
+          style: Toast.Style.Success,
+          title: "已添加选中文本",
+          message: `${selected.length} 字符`,
+        });
+      }
     } catch {
       await showToast({
         style: Toast.Style.Failure,
@@ -289,7 +351,10 @@ ${text}`;
   const clearInput = () => {
     setInputText("");
     setSelectedText("");
+    setTargetLanguage(TranslateLanguage || "");
   };
+
+
 
   // 渲染详情页面
   if (page === PageState.Detail) {
@@ -315,6 +380,7 @@ ${text}`;
                   setMarkdown("");
                   setInputText("");
                   setSelectedText("");
+                  setTargetLanguage(TranslateLanguage || "");
                 }}
               />
             </ActionPanel>
@@ -329,7 +395,11 @@ ${text}`;
     <Form
       actions={
         <ActionPanel>
-          <Action.SubmitForm title="开始翻译" icon={Icon.Globe} onSubmit={handleFormSubmit} />
+          <Action.SubmitForm
+            title="开始翻译"
+            icon={Icon.Globe}
+            onSubmit={handleFormSubmit}
+          />
           <Action
             title="添加选中文本"
             icon={Icon.Clipboard}
@@ -350,20 +420,27 @@ ${text}`;
       <Form.TextArea
         id="query"
         title="要翻译的文本"
-        placeholder="请输入要翻译的文本..."
+        placeholder="请输入要翻译的文本... (Cmd+Enter: 翻译, Shift+Enter: 换行)"
         value={inputText}
         onChange={setInputText}
+        enableMarkdown={false}
       />
-      {selectedText && (
-        <Form.Description
-          title="检测到选中文本"
-          text={`已自动填入：${selectedText.length > 50 ? selectedText.substring(0, 50) + "..." : selectedText}`}
-        />
-      )}
+      <Form.TextField
+        id="targetLanguage"
+        title="目标语言"
+        placeholder="留空为智能互译"
+        value={targetLanguage}
+        onChange={setTargetLanguage}
+        info={`默认互译：${firstLanguage} ⇄ ${secondLanguage}`}
+      />
       <Form.Description
         title="翻译规则"
         text={
-          TranslateLanguage ? `将翻译为：${TranslateLanguage}` : `智能双向翻译：${firstLanguage} ⇄ ${secondLanguage}`
+          targetLanguage
+            ? `将翻译为：${targetLanguage}`
+            : TranslateLanguage
+              ? `将翻译为：${TranslateLanguage}`
+              : `智能双向翻译：${firstLanguage} ⇄ ${secondLanguage}`
         }
       />
     </Form>
