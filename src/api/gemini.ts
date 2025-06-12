@@ -285,7 +285,7 @@ export class GeminiClient {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const data = await response.json() as any;
+      const data = (await response.json()) as any;
 
       // 检查响应格式
       if (!data.models || !Array.isArray(data.models)) {
@@ -297,8 +297,7 @@ export class GeminiClient {
       const models: ModelInfo[] = data.models
         .filter((model: any) => {
           // 过滤掉不支持 generateContent 的模型
-          return model.supportedGenerationMethods &&
-            model.supportedGenerationMethods.includes("generateContent");
+          return model.supportedGenerationMethods && model.supportedGenerationMethods.includes("generateContent");
         })
         .map((model: any) => {
           const modelName = model.name.replace("models/", ""); // 移除 "models/" 前缀
@@ -345,8 +344,8 @@ export class GeminiClient {
   private extractVersionFromName(modelName: string): string {
     // 匹配版本号模式
     const versionPatterns = [
-      /gemini-(\d+\.\d+)/,  // 匹配 gemini-2.5, gemini-2.0, gemini-1.5 等
-      /gemini-(\d+\.\d+)-/,  // 匹配带后缀的版本
+      /gemini-(\d+\.\d+)/, // 匹配 gemini-2.5, gemini-2.0, gemini-1.5 等
+      /gemini-(\d+\.\d+)-/, // 匹配带后缀的版本
     ];
 
     for (const pattern of versionPatterns) {
@@ -509,10 +508,6 @@ export function getGeminiClient(): GeminiClient {
 export function getStaticModels(): ModelInfo[] {
   return [...STATIC_MODELS];
 }
-
-
-
-
 
 /**
  * 验证模型名称格式

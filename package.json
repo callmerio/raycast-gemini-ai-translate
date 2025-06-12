@@ -26,6 +26,21 @@
           "required": false
         }
       ]
+    },
+    {
+      "name": "tts",
+      "title": "Tts",
+      "subtitle": "朗读",
+      "description": "使用 Microsoft Edge TTS 进行文本朗读，支持手动输入和选中文本播放",
+      "mode": "view",
+      "arguments": [
+        {
+          "name": "text",
+          "placeholder": "要朗读的文本",
+          "type": "text",
+          "required": false
+        }
+      ]
     }
   ],
   "preferences": [
@@ -141,12 +156,45 @@
       "type": "textfield",
       "required": false,
       "default": ""
+    },
+    {
+      "name": "ttsVoice",
+      "title": "TTS 语音",
+      "description": "选择文本转语音的语音类型",
+      "type": "dropdown",
+      "required": false,
+      "default": "zh-CN-XiaoxiaoNeural",
+      "data": [
+        {
+          "title": "晓晓 (中文女声)",
+          "value": "zh-CN-XiaoxiaoNeural"
+        },
+        {
+          "title": "云希 (中文男声)",
+          "value": "zh-CN-YunxiNeural"
+        },
+        {
+          "title": "云扬 (中文男声)",
+          "value": "zh-CN-YunyangNeural"
+        },
+        {
+          "title": "Jenny (英文女声)",
+          "value": "en-US-JennyNeural"
+        },
+        {
+          "title": "Guy (英文男声)",
+          "value": "en-US-GuyNeural"
+        }
+      ]
     }
   ],
   "dependencies": {
     "@google/genai": "^1.4.0",
     "@raycast/api": "^1.99.2",
-    "@raycast/utils": "^1.17.0"
+    "@raycast/utils": "^1.17.0",
+    "@types/ws": "^8.18.1",
+    "msedge-tts": "^2.0.0",
+    "ws": "^8.18.2"
   },
   "devDependencies": {
     "@raycast/eslint-config": "^2.0.4",
@@ -162,6 +210,12 @@
     "fix-lint": "ray lint --fix",
     "lint": "ray lint",
     "prepublishOnly": "echo \"\\n\\nIt seems like you are trying to publish the Raycast extension to npm.\\n\\nIf you did intend to publish it to npm, remove the \\`prepublishOnly\\` script and rerun \\`npm publish\\` again.\\nIf you wanted to publish it to the Raycast Store instead, use \\`npm run publish\\` instead.\\n\\n\" && exit 1",
-    "publish": "npx @raycast/api@latest publish"
+    "publish": "npx @raycast/api@latest publish",
+    "tts": "npx tsx src/streaming-tts/examples/msedge-native-stream.ts",
+    "tts-file": "npx tsx src/streaming-tts/examples/msedge-native-stream.ts --file",
+    "tts-files": "npx tsx src/streaming-tts/examples/msedge-native-stream.ts --files",
+    "tts-test": "npx tsx src/streaming-tts/examples/test-tts-methods.ts",
+    "tts-voices": "npx tsx src/streaming-tts/examples/test-tts-methods.ts voices",
+    "tts-simple": "npx tsx src/streaming-tts/examples/msedge-simple-tts.ts"
   }
 }

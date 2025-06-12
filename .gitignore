@@ -48,6 +48,7 @@ logs/
 
 # Documentation and memo files (not for public repo)
 docs/memo/
+docs/code2prompt-output/
 
 # GitHub CLI config
 .gh/

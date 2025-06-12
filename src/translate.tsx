@@ -11,11 +11,7 @@ import {
   Toast,
 } from "@raycast/api";
 import { useEffect, useState } from "react";
-import {
-  createGeminiClient,
-  GeminiClient,
-  isValidModelName
-} from "./api/gemini";
+import { createGeminiClient, GeminiClient, isValidModelName } from "./api/gemini";
 
 // 类型定义
 interface TranslateProps {
@@ -93,8 +89,6 @@ export default function Translate(props: TranslateProps) {
   const [targetLanguage, setTargetLanguage] = useState<string>("");
   const [geminiClient, setGeminiClient] = useState<GeminiClient | null>(null);
 
-
-
   // 获取用户配置
   const preferences = getPreferenceValues<Preferences>();
   const { apiKey, model, customModel, firstLanguage, secondLanguage, prompt } = preferences;
@@ -117,8 +111,6 @@ export default function Translate(props: TranslateProps) {
     }
     return model || "gemini-2.0-flash-exp";
   };
-
-
 
   /**
    * 初始化 Gemini 客户端
@@ -319,8 +311,6 @@ ${text}`;
     await performTranslation(textToTranslate, finalTargetLanguage);
   };
 
-
-
   /**
    * 添加选中文本到输入框
    */
@@ -353,8 +343,6 @@ ${text}`;
     setSelectedText("");
     setTargetLanguage(TranslateLanguage || "");
   };
-
-
 
   // 渲染详情页面
   if (page === PageState.Detail) {
@@ -395,11 +383,7 @@ ${text}`;
     <Form
       actions={
         <ActionPanel>
-          <Action.SubmitForm
-            title="开始翻译"
-            icon={Icon.Globe}
-            onSubmit={handleFormSubmit}
-          />
+          <Action.SubmitForm title="开始翻译" icon={Icon.Globe} onSubmit={handleFormSubmit} />
           <Action
             title="添加选中文本"
             icon={Icon.Clipboard}
