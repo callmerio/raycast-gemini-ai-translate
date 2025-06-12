@@ -58,9 +58,12 @@
 
 import { MsEdgeTTS as EdgeTTS, OUTPUT_FORMAT, Voice } from "msedge-tts";
 import { spawn } from "child_process";
+import { promisify } from "util";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+
+const execAsync = promisify(require("child_process").exec);
 
 /**
  * TTS 播放选项
@@ -260,6 +263,34 @@ export class MsEdgeTTS {
   }
 
   /**
+   * 停止所有 afplay 进程（增强版）
+   */
+  static async stopAllAudioPlayback(): Promise<void> {
+    try {
+      console.log("🔍 检查现有的 afplay 进程...");
+      const { stdout } = await execAsync("pgrep afplay");
+
+      if (stdout.trim()) {
+        console.log("🛑 发现现有的 afplay 进程，正在停止...");
+        await execAsync("pkill afplay");
+        console.log("✅ 已停止所有现有的音频播放");
+
+        // 给进程一点时间完全终止
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } else {
+        console.log("ℹ️ 没有发现运行中的 afplay 进程");
+      }
+    } catch (error: any) {
+      // pgrep 没找到进程时会返回非零退出码，这是正常的
+      if (error.code === 1) {
+        console.log("ℹ️ 没有发现运行中的 afplay 进程");
+      } else {
+        console.warn("⚠️ 检查/停止音频播放时出错:", error);
+      }
+    }
+  }
+
+  /**
    * 取消当前播放（静态方法）
    */
   static cancelCurrentPlayback(): void {
@@ -297,64 +328,73 @@ export class MsEdgeTTS {
   }
 
   /**
-   * 播放音频文件（增强版，支持强制取消现有播放）
+   * 播放音频文件（增强版，支持强制取消现有播放）- non-blocking
    */
-  private async playAudioFile(filePath: string): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      /* ---- REMOVE THIS BLOCK ----
-      // 在开始新播放前，强制取消现有播放 - Cancellation is now handled BEFORE calling this
-      if (MsEdgeTTS.currentPlayer) {
-        console.log("🛑 检测到现有播放进程，强制终止...");
-        try {
-          MsEdgeTTS.currentPlayer.kill('SIGKILL');
-          console.log("✅ 现有播放进程已强制终止");
-        } catch (error) {
-          console.warn("⚠️ 终止现有播放进程时出错:", error);
+  private playAudioFile(filePath: string): void {
+    // The cancellation logic is now handled in `static speak` before this is called.
+    if (MsEdgeTTS.currentPlayer) {
+      console.warn("⚠️ Race condition detected: currentPlayer exists when starting new playback. Forcibly killing old player.");
+      try {
+        MsEdgeTTS.currentPlayer.kill('SIGKILL');
+      } catch (e) { /* ignore */ }
+    }
+
+    console.log("🎵 开始播放...");
+    MsEdgeTTS.isPlaying = true;
+
+    const player = spawn("afplay", [filePath], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+
+    // 保存当前播放器和临时文件引用
+    MsEdgeTTS.currentPlayer = player;
+    MsEdgeTTS.currentTempFile = filePath;
+
+    player.on("close", (code) => {
+      console.log(`✅ 播放完成 (退出码: ${code})`);
+      // 清理引用 - CHECK OWNERSHIP!
+      if (MsEdgeTTS.currentPlayer === player) {
+        // 清理临时文件
+        if (MsEdgeTTS.currentTempFile) {
+          try {
+            if (fs.existsSync(MsEdgeTTS.currentTempFile)) {
+              fs.unlinkSync(MsEdgeTTS.currentTempFile);
+              console.log("🗑️ 临时文件已清理 by player.on(close)");
+            }
+          } catch (error) {
+            console.warn("⚠️ 清理临时文件失败:", error);
+          }
         }
+
+        MsEdgeTTS.isPlaying = false;
         MsEdgeTTS.currentPlayer = null;
         MsEdgeTTS.currentTempFile = "";
+        console.log("🔄 播放状态已重置 by player.on(close)");
       }
-     ---------------------------- */
-      // Check again just in case of race, but don't kill
-      if (MsEdgeTTS.currentPlayer) {
-        console.warn("⚠️ Race condition detected: currentPlayer exists in playAudioFile, continuing anyway.");
+    });
+
+    player.on("error", (error) => {
+      console.error("❌ 播放错误:", error);
+      // 清理引用 - CHECK OWNERSHIP!
+      if (MsEdgeTTS.currentPlayer === player) {
+        // 清理临时文件
+        if (MsEdgeTTS.currentTempFile) {
+          try {
+            if (fs.existsSync(MsEdgeTTS.currentTempFile)) {
+              fs.unlinkSync(MsEdgeTTS.currentTempFile);
+              console.log("🗑️ 临时文件已清理 by player.on(error)");
+            }
+          } catch (error) {
+            console.warn("⚠️ 清理临时文件失败:", error);
+          }
+        }
+
+        MsEdgeTTS.isPlaying = false;
+        MsEdgeTTS.currentPlayer = null;
+        MsEdgeTTS.currentTempFile = "";
+        console.log("🔄 播放状态已重置 by player.on(error)");
       }
-
-      console.log("🎵 开始播放...");
-      // SET STATE HERE
-      MsEdgeTTS.isPlaying = true;
-
-      const player = spawn("afplay", [filePath], {
-        stdio: ["ignore", "ignore", "ignore"],
-      });
-
-      // 保存当前播放器和临时文件引用
-      MsEdgeTTS.currentPlayer = player;
-      MsEdgeTTS.currentTempFile = filePath;
-
-      player.on("close", (code) => {
-        console.log(`✅ 播放完成 (退出码: ${code})`);
-        // 清理引用 - CHECK OWNERSHIP!
-        if (MsEdgeTTS.currentPlayer === player) {
-          MsEdgeTTS.isPlaying = false; // <<< MANAGE STATE
-          MsEdgeTTS.currentPlayer = null;
-          MsEdgeTTS.currentTempFile = "";
-          console.log("🔄 播放状态已重置 by player.on(close)");
-        }
-        resolve();
-      });
-
-      player.on("error", (error) => {
-        console.error("❌ 播放错误:", error);
-        // 清理引用 - CHECK OWNERSHIP!
-        if (MsEdgeTTS.currentPlayer === player) {
-          MsEdgeTTS.isPlaying = false; // <<< MANAGE STATE
-          MsEdgeTTS.currentPlayer = null;
-          MsEdgeTTS.currentTempFile = "";
-          console.log("🔄 播放状态已重置 by player.on(error)");
-        }
-        reject(error);
-      });
+      // Since we are not in a promise, we can't reject. We just log the error.
     });
   }
 
@@ -474,9 +514,9 @@ export class MsEdgeTTS {
           console.log(`🎵 [${streamId}] 开始播放音频文件...`);
 
           // 播放音频
-          await this.playAudioFile(tempFile);
+          this.playAudioFile(tempFile);
 
-          console.log(`🎉 [${streamId}] 播放完成`);
+          console.log(`🎉 [${streamId}] 播放完成`); // This log now means "playback initiated"
 
         } catch (error) {
           if (error instanceof Error && error.message === 'Stream aborted') {
@@ -505,9 +545,8 @@ export class MsEdgeTTS {
       }
     } finally {
       // 9. 清理资源
-      if (tempFile) {
-        this.cleanupTempFile(tempFile);
-      }
+      // NOTE: 不在这里清理 tempFile，因为 playAudioFile 是非阻塞的
+      // 临时文件会在播放器进程结束时自动清理
 
       // 只有当前流才能清理自己的状态
       if (MsEdgeTTS.activeStreamId === streamId) {
@@ -638,8 +677,9 @@ export class MsEdgeTTS {
           console.log("✅ 音频流写入完成");
 
           try {
-            await this.playAudioFile(tempFile);
-            this.cleanupTempFile(tempFile);
+            this.playAudioFile(tempFile);
+            // NOTE: 不在这里清理 tempFile，因为 playAudioFile 是非阻塞的
+            // 临时文件会在播放器进程结束时自动清理
             resolve();
           } catch (error) {
             this.cleanupTempFile(tempFile);
@@ -820,28 +860,21 @@ export class MsEdgeTTS {
     const requestId = MsEdgeTTS.generateStreamId();
     console.log(`🚀 [${requestId}] 新的TTS播放请求: "${text.substring(0, 30)}${text.length > 30 ? '...' : ''}"`);
 
-    // FIX 2: Centralised, robust cancellation check BEFORE try/catch
-    const needsCancelPlayer = !!MsEdgeTTS.currentPlayer; // Check if a player process actually exists
-    const needsCancelStream = !!MsEdgeTTS.activeStreamId && MsEdgeTTS.activeStreamId !== requestId;
-    const isOwnedByOther = !!MsEdgeTTS.activeRequestId && MsEdgeTTS.activeRequestId !== requestId;
+    // 增强的取消逻辑：使用系统级进程管理
+    console.log(`🔄 [${requestId}] 检查并停止现有音频播放...`);
 
-    if (needsCancelPlayer || needsCancelStream || isOwnedByOther) {
-      console.log(`🔄 [${requestId}] 检测到现有活动 (Player:${needsCancelPlayer}, Stream:${needsCancelStream}, Owner:${MsEdgeTTS.activeRequestId}), 正在强制取消...`);
-      // ALWAYS kill player if it exists
-      if (needsCancelPlayer) {
-        MsEdgeTTS.cancelCurrentPlayback();
-      }
-      // ALWAYS cancel stream if it exists and isn't ours
-      if (needsCancelStream || isOwnedByOther) {
-        await MsEdgeTTS.cancelActiveStream();
-      }
-      // Delay only if we actually did something
-      await new Promise(resolve => setTimeout(resolve, 50));
+    // 1. 停止所有 afplay 进程（最可靠的方法）
+    await MsEdgeTTS.stopAllAudioPlayback();
+
+    // 2. 取消活动流生成
+    if (MsEdgeTTS.activeStreamId) {
+      await MsEdgeTTS.cancelActiveStream();
     }
-    // END FIX 2 check
+
+    // 3. 清理内部状态
+    MsEdgeTTS.cancelCurrentPlayback();
 
     try {
-      // Claim ownership
       MsEdgeTTS.activeRequestId = requestId;
       MsEdgeTTS.currentPlayingText = text.trim();
 
@@ -852,43 +885,35 @@ export class MsEdgeTTS {
         tts.setOutputFormat(options.outputFormat);
       }
       const mode = options.enableBoundary ? "boundary" : "native";
-      // This will now correctly throw if cancelled, thanks to FIX 1
+
+      // This will now return as soon as playback *starts*, not when it finishes.
       await tts.speak(text, mode, options.voice);
 
       const duration = Date.now() - startTime;
-      // If we got here, it was successful
-      console.log(`✅ [${requestId}] 播放成功完成，耗时: ${duration}ms`);
+      console.log(`✅ [${requestId}] 播放请求处理完成，耗时: ${duration}ms`);
+
       return {
         success: true,
-        message: "播放完成",
+        message: "播放已开始", // Message changed to reflect reality
         duration,
       };
     } catch (error) { // FIX 1 ensures we land here on cancellation
       const duration = Date.now() - startTime;
       const errorMessage = (error as Error)?.message || "Unknown error";
       const errorString = error?.toString() || "";
-      console.log(`🔍 [${requestId}] 错误/取消详情: message="${errorMessage}", toString="${errorString}"`);
+      console.log(`🔍 [${requestId}] 错误详情: message="${errorMessage}", toString="${errorString}"`);
 
-      // Check if this request was cancelled by a NEWER request OR if the error is a cancellation error
       const wasCancelledByNewerRequest = MsEdgeTTS.activeRequestId !== requestId;
-      const isCancellationError = errorMessage.includes("Connect Error") ||
-        errorMessage.includes("Stream aborted") ||
-        errorMessage.includes("aborted") || // Added generic aborted
-        errorString.includes("Connect Error") ||
-        errorString.includes("Stream aborted") ||
-        errorString.includes("aborted") ||
-        errorMessage === "Unknown error";
 
-      if (wasCancelledByNewerRequest || isCancellationError) {
-        console.log(`🔄 [${requestId}] 播放被取消 (Owner: ${MsEdgeTTS.activeRequestId}, Error:${isCancellationError}), 耗时: ${duration}ms`);
+      if (wasCancelledByNewerRequest || errorMessage.includes("Connect Error") || errorMessage.includes("Stream aborted")) {
+        console.log(`🔄 [${requestId}] 播放被取消，耗时: ${duration}ms`);
         return {
           success: false,
-          cancelled: true, // CORRECTLY RETURN CANCELLED
+          cancelled: true,
           message: "播放被新请求取消",
           duration,
         };
       }
-      // If not a cancellation, it's a real error
       console.error(`❌ [${requestId}] 播放失败，耗时: ${duration}ms，错误:`, error);
       return {
         success: false,
@@ -966,6 +991,44 @@ export class MsEdgeTTS {
   static async searchVoices(keyword: string): Promise<Voice[]> {
     const tts = new MsEdgeTTS();
     return await tts.searchVoices(keyword);
+  }
+
+  /**
+   * 停止所有音频播放（公共静态方法）
+   */
+  static async stopAudio(): Promise<TTSResult> {
+    const startTime = Date.now();
+
+    try {
+      console.log("🛑 用户请求停止所有音频播放...");
+
+      // 停止所有 afplay 进程
+      await MsEdgeTTS.stopAllAudioPlayback();
+
+      // 取消活动流
+      await MsEdgeTTS.cancelActiveStream();
+
+      // 清理内部状态
+      MsEdgeTTS.cancelCurrentPlayback();
+
+      const duration = Date.now() - startTime;
+      console.log(`✅ 所有音频播放已停止，耗时: ${duration}ms`);
+
+      return {
+        success: true,
+        message: "所有音频播放已停止",
+        duration,
+      };
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      console.error("❌ 停止音频播放失败:", error);
+
+      return {
+        success: false,
+        message: `停止音频播放失败: ${(error as Error)?.message || "Unknown error"}`,
+        duration,
+      };
+    }
   }
 
   /**
