@@ -7,6 +7,7 @@
 
 import {
   Detail,
+  Form,
   getPreferenceValues,
   getSelectedText,
   showToast,
@@ -29,6 +30,7 @@ interface Arguments {
 
 // 页面状态枚举
 enum PageState {
+  Form = "form",
   Loading = "loading",
   Playing = "playing",
   Success = "success",
@@ -40,10 +42,11 @@ export default function TTSCommand(props: { arguments: Arguments }) {
   const { ttsVoice } = getPreferenceValues<Preferences>();
 
   // 状态管理
-  const [pageState, setPageState] = useState<PageState>(PageState.Loading);
+  const [pageState, setPageState] = useState<PageState>(PageState.Form);
   const [textToSpeak, setTextToSpeak] = useState<string>("");
+  const [inputText, setInputText] = useState<string>("");
+  const [selectedText, setSelectedText] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
-  const [playDuration, setPlayDuration] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
 
   // 使用 useRef 来确保初始化只执行一次
@@ -105,7 +108,6 @@ export default function TTSCommand(props: { arguments: Arguments }) {
       });
 
       const duration = Date.now() - startTime;
-      setPlayDuration(duration);
 
       // Check cancelled FIRST
       if (result.cancelled) {
@@ -195,37 +197,97 @@ export default function TTSCommand(props: { arguments: Arguments }) {
   };
 
   /**
+   * 处理表单提交
+   */
+  const handleFormSubmit = async (values: { text: string }) => {
+    const textToPlay = values.text.trim();
+
+    if (!textToPlay) {
+      showToast({
+        style: Toast.Style.Failure,
+        title: "请输入要播放的文本",
+      });
+      return;
+    }
+
+    setTextToSpeak(textToPlay);
+    await performTTS(textToPlay);
+  };
+
+  /**
+   * 添加选中文本到输入框
+   */
+  const appendSelectedText = async () => {
+    try {
+      const selected = await getSelectedText();
+      if (selected) {
+        setSelectedText(selected);
+        setInputText((prev) => prev + selected);
+        showToast({
+          style: Toast.Style.Success,
+          title: "已添加选中文本",
+          message: `${selected.length} 字符`,
+        });
+      }
+    } catch {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "无法获取选中文本",
+        message: "请手动输入要播放的文本",
+      });
+    }
+  };
+
+  /**
+   * 清除输入内容
+   */
+  const clearInput = () => {
+    setInputText("");
+    setSelectedText("");
+  };
+
+  /**
    * 初始化逻辑
    */
   useEffect(() => {
     const initializeTTS = async () => {
       try {
-        let finalText = "";
+        // 如果已经有播放过的内容，且没有新的命令参数，保持当前状态
+        if (textToSpeak && !argumentText?.trim() && pageState !== PageState.Form) {
+          console.log("保持当前播放状态，不重新初始化");
+          return;
+        }
 
         // 优先使用命令参数
         if (argumentText?.trim()) {
-          finalText = argumentText.trim();
+          const finalText = argumentText.trim();
           setTextToSpeak(finalText);
+          setInputText(finalText);
+          setPageState(PageState.Loading);
           await performTTS(finalText);
           return;
         }
 
         // 尝试获取选中文本
         try {
-          const selectedText = await getSelectedText();
-          if (selectedText?.trim()) {
-            finalText = selectedText.trim();
-            setTextToSpeak(finalText);
-            await performTTS(finalText);
+          const selected = await getSelectedText();
+          if (selected?.trim()) {
+            // 直接将选中文本放到输入框中
+            setSelectedText(selected);
+            setInputText(selected);
+            setTextToSpeak(selected);
+            setPageState(PageState.Loading);
+            await performTTS(selected);
             return;
           }
         } catch (selectionError) {
           console.log("无法获取选中文本:", selectionError);
         }
 
-        // 没有文本可播放
-        setErrorMessage("没有找到要播放的文本。请选中文本后重试，或使用命令参数传入文本。");
-        setPageState(PageState.Error);
+        // 没有文本时显示Form页面让用户输入
+        if (!textToSpeak) {
+          setPageState(PageState.Form);
+        }
       } catch (error) {
         console.error("TTS初始化错误:", error);
         setErrorMessage("初始化失败，请重试");
@@ -255,28 +317,20 @@ export default function TTSCommand(props: { arguments: Arguments }) {
       case PageState.Playing:
         return `# 🔊 正在播放
 
-**语音**: ${getVoiceName(ttsVoice)}
-
-**文本内容**:
 \`\`\`
 ${textPreview}
 \`\`\`
 
-⏳ 播放中，请稍候...`;
+⏳ 播放中...`;
 
       case PageState.Success:
         return `# ✅ 播放完成
 
-**语音**: ${getVoiceName(ttsVoice)}
-**播放时长**: ${Math.round(playDuration / 1000)}秒
-**文本长度**: ${textToSpeak.length}字符
-
-**播放内容**:
 \`\`\`
 ${textPreview}
 \`\`\`
 
-🎉 语音播放已完成！`;
+🎉 播放完成！`;
 
       case PageState.Error:
         return `# ❌ 播放失败
@@ -301,6 +355,47 @@ ${textPreview}
     }
   };
 
+  // 如果是Form页面，渲染Form组件
+  if (pageState === PageState.Form) {
+    return (
+      <Form
+        actions={
+          <ActionPanel>
+            <Action.SubmitForm title="开始播放" icon={Icon.Play} onSubmit={handleFormSubmit} />
+            <Action
+              title="添加选中文本"
+              icon={Icon.Clipboard}
+              shortcut={{ modifiers: ["ctrl", "shift"], key: "v" }}
+              onAction={appendSelectedText}
+            />
+            {(inputText || selectedText) && (
+              <Action
+                title="清除输入"
+                icon={Icon.Trash}
+                shortcut={{ modifiers: ["cmd"], key: "backspace" }}
+                onAction={clearInput}
+              />
+            )}
+          </ActionPanel>
+        }
+      >
+        <Form.TextArea
+          id="text"
+          title="要播放的文本"
+          placeholder="请输入要进行语音播放的文本... (Cmd+Enter: 播放, Shift+Enter: 换行)"
+          value={inputText}
+          onChange={setInputText}
+          enableMarkdown={false}
+        />
+        <Form.Description
+          title="支持的语音"
+          text={`当前语音：${getVoiceName(ttsVoice)} | 可在扩展设置中更改默认语音`}
+        />
+      </Form>
+    );
+  }
+
+  // 其他页面渲染Detail组件
   return (
     <Detail
       markdown={renderContent()}
@@ -348,6 +443,17 @@ ${textPreview}
               title="复制文本"
               content={textToSpeak}
               shortcut={{ modifiers: ["cmd"], key: "c" }}
+            />
+          )}
+          {(pageState === PageState.Success || pageState === PageState.Error) && (
+            <Action
+              title="返回输入页面"
+              icon={Icon.ArrowLeft}
+              onAction={() => {
+                setPageState(PageState.Form);
+                setInputText(textToSpeak); // 将当前文本放回输入框
+              }}
+              shortcut={{ modifiers: ["cmd"], key: "b" }}
             />
           )}
         </ActionPanel>
